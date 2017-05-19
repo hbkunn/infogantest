@@ -1,2 +1,0 @@
-# infogan-pytorch
-infogan-pytorch
