@@ -18,16 +18,6 @@ import matplotlib.gridspec as gridspec
 import cv2
 import numpy as np
 
-torch.cuda.set_device(0)
-device_ids = [0,1]
-batchsize = 1
-rand = 128
-cont = 5
-lrQG = 0.00005
-lrQD = 0.00005
-dis = 0
-cont_lamda = np.asarray([[1,1,1,1,1]],dtype=np.float32)
-
 
 def get_mnist():
     mnist = fetch_mldata('MNIST original',data_home="/home/msragpu/cellwork/test_dataset/")
@@ -80,7 +70,7 @@ def test():
     X = np.asarray([x[:,:,::-1].transpose((2,0,1)) for x in X])
     X = X.astype(np.float32)/(255.0/2) - 1.0
     return X
-	
+
 class _netG(nn.Module):
     def __init__(self, isize = 32, nz = 149, nc = 3, ngf = 64, n_extra_layers=0):
         super(_netG, self).__init__()
@@ -192,7 +182,7 @@ class _netD_Q_3(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         return x
-		
+        
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -211,26 +201,6 @@ def sample_c(batchsize):
     label_c = torch.LongTensor(label_c.astype('int'))
     rand_c = torch.from_numpy(rand_c.astype('float32'))
     return rand_c,label_c
-
-def zero_grad():
-    netD.zero_grad()
-    #netD_Q.zero_grad()
-    #netD_Q_2.zero_grad()
-    netD_Q_3.zero_grad()
-    netD_D.zero_grad()
-    netG.zero_grad()
-
-def weight_clamp():
-    for p in netD.parameters():
-            p.data.clamp_(-0.01, 0.01)
-    for p in netD_D.parameters():
-            p.data.clamp_(-0.01, 0.01)
-    #for p in netD_Q.parameters():
-            #p.data.clamp_(-0.01, 0.01)
-    #for p in netD_Q_2.parameters():
-            #p.data.clamp_(-0.01, 0.01)
-    #for p in netD_Q_3.parameters():
-            #p.data.clamp_(-0.01, 0.01)
         
 def generate_fix_noise(dis=1, cont=4, rand=128):
     
@@ -286,203 +256,224 @@ def generate_fix_noise_2(cont=4, rand=128):
     return lst
 
 def train(lrQG, lrQD, cont_lamda, num_epoch):
+    
+    def zero_grad():
+        netD.zero_grad()
+    #netD_Q.zero_grad()
+    #netD_Q_2.zero_grad()
+        netD_Q_3.zero_grad()
+        netD_D.zero_grad()
+        netG.zero_grad()
 
-	torch.cuda.set_device(0)
-	device_ids = [0,1]
-	batchsize = 1
-	rand = 128
-	cont = 5
-	lrQG = lrQG
-	lrQD = lrQD
-	cont_lamda = np.asarray([[1,1,1,1,1]],dtype=np.float32)
-	lam = np.array_str(cont_lamda).replace(' ','_').replace('[','').replace(']','').replace('.','')
-	dis = 0 #Ã»Ð´²»¶¯
-	
-	X_train = bonemarrow_cell()
-	X_label = torch.LongTensor(np.zeros((X_train.shape[0]),dtype=int))
-	X_train = torch.FloatTensor(X_train)
-	train = torch.utils.data.TensorDataset(X_train,X_label)
-	train_loader = torch.utils.data.DataLoader(train, shuffle=True, batch_size=batchsize)
-	dataiter = iter(train_loader)
-	
-	netG = _netG(nz = rand+dis*10+cont)
-	print (netG)
+    def weight_clamp():
+        for p in netD.parameters():
+            p.data.clamp_(-0.01, 0.01)
+        for p in netD_D.parameters():
+            p.data.clamp_(-0.01, 0.01)
+    #for p in netD_Q.parameters():
+            #p.data.clamp_(-0.01, 0.01)
+    #for p in netD_Q_2.parameters():
+            #p.data.clamp_(-0.01, 0.01)
+    #for p in netD_Q_3.parameters():
+            #p.data.clamp_(-0.01, 0.01)
+        
+    torch.cuda.set_device(0)
+    device_ids = [0,1]
+    batchsize = 1
+    rand = 128
+    cont = 5
+    lrQG = lrQG
+    lrQD = lrQD
+    cont_lamda = np.asarray([[1,1,1,1,1]],dtype=np.float32)
+    lam = np.array_str(cont_lamda).replace(' ','_').replace('[','').replace(']','').replace('.','')
+    dis = 0 #todo
+    
+    X_train = bonemarrow_cell()
+    X_label = torch.LongTensor(np.zeros((X_train.shape[0]),dtype=int))
+    X_train = torch.FloatTensor(X_train)
+    train = torch.utils.data.TensorDataset(X_train,X_label)
+    train_loader = torch.utils.data.DataLoader(train, shuffle=True, batch_size=batchsize)
+    dataiter = iter(train_loader)
+    
+    netG = _netG(nz = rand+dis*10+cont)
+    print (netG)
 
-	netD = _netD(nz = rand+dis*10+cont)
-	print (netD)
-	
-	netD_D = _netD_D()
-	netD_Q_3 = _netD_Q_3(nc = cont)
+    netD = _netD(nz = rand+dis*10+cont)
+    print (netD)
+    
+    netD_D = _netD_D()
+    netD_Q_3 = _netD_Q_3(nc = cont)
 
-	netD, netG, netD_D, netD_Q_3 = netD.cuda(), netG.cuda(), netD_D.cuda(),  netD_Q_3.cuda()
-	
-	netG.apply(weights_init)
-	netD.apply(weights_init)
-	#netD_Q.apply(weights_init)
-	netD_Q_3.apply(weights_init)
-	netD_D.apply(weights_init)
-	
-	optimizerD = optim.RMSprop([
-					{'params': netD.parameters()},
-					{'params': netD_D.parameters()}
-				], 0.00005)
+    netD, netG, netD_D, netD_Q_3 = netD.cuda(), netG.cuda(), netD_D.cuda(),  netD_Q_3.cuda()
+    
+    netG.apply(weights_init)
+    netD.apply(weights_init)
+    #netD_Q.apply(weights_init)
+    netD_Q_3.apply(weights_init)
+    netD_D.apply(weights_init)
+    
+    optimizerD = optim.RMSprop([
+                    {'params': netD.parameters()},
+                    {'params': netD_D.parameters()}
+                ], 0.00005)
 
-	optimizerG = optim.RMSprop(netG.parameters(), lr = 0.00005)
-	 
-	optimizerQ_G = optim.RMSprop([
-					{'params': netG.parameters()},            
-				], lrQG)
+    optimizerG = optim.RMSprop(netG.parameters(), lr = 0.00005)
+     
+    optimizerQ_G = optim.RMSprop([
+                    {'params': netG.parameters()},            
+                ], lrQG)
 
-	optimizerQ_D = optim.RMSprop([
-					{'params': netD.parameters()},
-					{'params': netD_Q_3.parameters()}
-				], lrQD)
+    optimizerQ_D = optim.RMSprop([
+                    {'params': netD.parameters()},
+                    {'params': netD_Q_3.parameters()}
+                ], lrQD)
 
-	input = torch.FloatTensor(batchsize, 3, 32, 32)
-	noise = torch.FloatTensor(batchsize, rand+10*dis+cont,1 ,1 )
+    input = torch.FloatTensor(batchsize, 3, 32, 32)
+    noise = torch.FloatTensor(batchsize, rand+10*dis+cont,1 ,1 )
 
-	fixed_noise = torch.FloatTensor(np.random.multinomial(batchsize, 10*[0.1], size=1))
-	c = torch.randn(batchsize, 10)
-	c2 = torch.randn(batchsize, 10)
-	c3 = torch.FloatTensor(np.random.uniform(-1,1,(batchsize,cont)))
-	z = torch.randn(batchsize, rand)
+    fixed_noise = torch.FloatTensor(np.random.multinomial(batchsize, 10*[0.1], size=1))
+    c = torch.randn(batchsize, 10)
+    c2 = torch.randn(batchsize, 10)
+    c3 = torch.FloatTensor(np.random.uniform(-1,1,(batchsize,cont)))
+    z = torch.randn(batchsize, rand)
 
-	label = torch.FloatTensor(1)
+    label = torch.FloatTensor(1)
 
-	real_label = 1
-	fake_label = 0
+    real_label = 1
+    fake_label = 0
 
-	criterion = nn.BCELoss()
-	criterion_logli = nn.NLLLoss()
-	criterion_mse = nn.MSELoss()
+    criterion = nn.BCELoss()
+    criterion_logli = nn.NLLLoss()
+    criterion_mse = nn.MSELoss()
 
-	criterion, criterion_logli, criterion_mse = criterion.cuda(), criterion_logli.cuda(), criterion_mse.cuda()
-	input, label = input.cuda(), label.cuda()
-	noise, fixed_noise = noise.cuda(), fixed_noise.cuda()
-	z, c, c2, c3 = z.cuda(), c.cuda(), c2.cuda(), c3.cuda()
+    criterion, criterion_logli, criterion_mse = criterion.cuda(), criterion_logli.cuda(), criterion_mse.cuda()
+    input, label = input.cuda(), label.cuda()
+    noise, fixed_noise = noise.cuda(), fixed_noise.cuda()
+    z, c, c2, c3 = z.cuda(), c.cuda(), c2.cuda(), c3.cuda()
 
-	one = torch.FloatTensor([1])
-	mone = one * -1
-	one = one.cuda()
-	mone = mone.cuda()
-	cont_lamda = Variable(torch.from_numpy(cont_lamda).cuda(),requires_grad=False)
-	
-	gen_iterations = 0
+    one = torch.FloatTensor([1])
+    mone = one * -1
+    one = one.cuda()
+    mone = mone.cuda()
+    cont_lamda = Variable(torch.from_numpy(cont_lamda).cuda(),requires_grad=False)
+    
+    gen_iterations = 0
 
-	for epoch in range(num_epoch):
+    for epoch in range(num_epoch):
 
-		dataiter = iter(train_loader)
-		i = 0
-		
-		while i < len(train_loader):
-			weight_clamp()
-			if gen_iterations < 25 or gen_iterations % 500 == 0:
-				Diters = 1
-			else:
-				Diters = 1
-			
-			j = 0
-			while j < Diters and i < len(train_loader):
-				j += 1
-				image_, _ = dataiter.next()
-				_batchsize = image_.size(0)
-				
-				image_ = image_.cuda()
-				
-				i +=1
-				weight_clamp()
-		#train on D
-		#sending real data 
-				zero_grad()
-				input.resize_as_(image_).copy_(image_)
-				inputv = Variable(input)
-			 #   label.data.resize_(1).fill_(real_label)
-				D_real =netD_D(netD(inputv)).mean(0).view(1)
-				#D_loss_real = criterion(D_real, label)
-				D_real.backward(one)
+        dataiter = iter(train_loader)
+        i = 0
+        
+        while i < len(train_loader):
+            weight_clamp()
+            if gen_iterations < 25 or gen_iterations % 500 == 0:
+                Diters = 1
+            else:
+                Diters = 1
+            
+            j = 0
+            while j < Diters and i < len(train_loader):
+                j += 1
+                image_, _ = dataiter.next()
+                _batchsize = image_.size(0)
+                
+                image_ = image_.cuda()
+                
+                i +=1
+                weight_clamp()
+        #train on D
+        #sending real data 
+                zero_grad()
+                input.resize_as_(image_).copy_(image_)
+                inputv = Variable(input)
+             #   label.data.resize_(1).fill_(real_label)
+                D_real =netD_D(netD(inputv)).mean(0).view(1)
+                #D_loss_real = criterion(D_real, label)
+                D_real.backward(one)
 
-		#sending noise
-				z.normal_(0, 1)
-				#rand_c,label_c = sample_c(batchsize)
-				#c.copy_(rand_c)
-				c3.uniform_(-1,1)
-				noise = torch.cat([c3,z],1)
-				noise_resize = noise.view(batchsize,rand+10*dis+cont,1,1)
-				noisev = Variable(noise_resize)
-				
-				G_sample = Variable(netG(noisev).data)
-				inputv = G_sample
-				D_fake = netD_D(netD(inputv)).mean(0).view(1)
-			 #   label.data.resize_(1).fill_(fake_label)
-			   # D_loss_fake = criterion(D_fake, label)
-				D_fake.backward(mone)
-			
-		# update D
-				optimizerD.step()
-		
-			for p in netD.parameters():
-				p.requires_grad = False # to avoid computation
-			for p in netD_D.parameters():
-				p.requires_grad = False # to avoid computation
+        #sending noise
+                z.normal_(0, 1)
+                #rand_c,label_c = sample_c(batchsize)
+                #c.copy_(rand_c)
+                c3.uniform_(-1,1)
+                noise = torch.cat([c3,z],1)
+                noise_resize = noise.view(batchsize,rand+10*dis+cont,1,1)
+                noisev = Variable(noise_resize)
+                
+                G_sample = Variable(netG(noisev).data)
+                inputv = G_sample
+                D_fake = netD_D(netD(inputv)).mean(0).view(1)
+             #   label.data.resize_(1).fill_(fake_label)
+               # D_loss_fake = criterion(D_fake, label)
+                D_fake.backward(mone)
+            
+        # update D
+                optimizerD.step()
+        
+            for p in netD.parameters():
+                p.requires_grad = False # to avoid computation
+            for p in netD_D.parameters():
+                p.requires_grad = False # to avoid computation
 
-		# update G  
-			zero_grad()
-			noisev = Variable(noise_resize)
-			G_sample = netG(noisev)
-			D_fake = netD_D(netD(G_sample)).mean(0).view(1)
-		  #  label.data.resize_(1).fill_(real_label)
-		   # G_loss = criterion(D_fake, label)
-			D_fake.backward(one)
-			optimizerG.step()
-			
-			gen_iterations += 1
-			
-			for p in netD.parameters():
-				p.requires_grad = True # to avoid computation
-			for p in netD_D.parameters():
-				p.requires_grad = True # to avoid computation
+        # update G  
+            zero_grad()
+            noisev = Variable(noise_resize)
+            G_sample = netG(noisev)
+            D_fake = netD_D(netD(G_sample)).mean(0).view(1)
+          #  label.data.resize_(1).fill_(real_label)
+           # G_loss = criterion(D_fake, label)
+            D_fake.backward(one)
+            optimizerG.step()
+            
+            gen_iterations += 1
+            
+            for p in netD.parameters():
+                p.requires_grad = True # to avoid computation
+            for p in netD_D.parameters():
+                p.requires_grad = True # to avoid computation
 
-		# update Q
-			zero_grad()
-			noisev = Variable(noise_resize)
-			G_sample = netG(noisev)
-			#Q_c_given_x = netD_Q(netD(G_sample)).view(batchsize, 10)
-			Q_c_given_x_3 = netD_Q_3(netD(G_sample))
-			
-			#crossent_loss = criterion_logli(Q_c_given_x ,Variable(label_c.cuda()))
-		   # print (Q_c_given_x)
-			#crossent_loss_3 = criterion_mse(Q_c_given_x_3, Variable(c3)) 
-			square_loss = (Q_c_given_x_3 - Variable(c3).view(1,-1,1,1))**2*cont_lamda
-			square_loss = square_loss.sum()
-			
-			# ent_loss = torch.mean(-torch.sum(c * torch.log(c + 1e-8), dim=1))
-		   # ent_loss_2 = torch.mean(-torch.sum(c2 * torch.log(c2 + 1e-8), dim=1))
-		   # ent_loss_3 = torch.mean(-torch.sum(c3 * torch.log(c3 + 1e-8), dim=1))
+        # update Q
+            zero_grad()
+            noisev = Variable(noise_resize)
+            G_sample = netG(noisev)
+            #Q_c_given_x = netD_Q(netD(G_sample)).view(batchsize, 10)
+            Q_c_given_x_3 = netD_Q_3(netD(G_sample))
+            
+            #crossent_loss = criterion_logli(Q_c_given_x ,Variable(label_c.cuda()))
+           # print (Q_c_given_x)
+            #crossent_loss_3 = criterion_mse(Q_c_given_x_3, Variable(c3)) 
+            square_loss = (Q_c_given_x_3 - Variable(c3).view(1,-1,1,1))**2*cont_lamda
+            square_loss = square_loss.sum()
+            
+            # ent_loss = torch.mean(-torch.sum(c * torch.log(c + 1e-8), dim=1))
+           # ent_loss_2 = torch.mean(-torch.sum(c2 * torch.log(c2 + 1e-8), dim=1))
+           # ent_loss_3 = torch.mean(-torch.sum(c3 * torch.log(c3 + 1e-8), dim=1))
 
-			#mi_loss = 0.1*crossent_loss  + 1*square_loss
-			
-			mi_loss = 1*square_loss
-			mi_loss.backward()
-			optimizerQ.step()
-			
-			if gen_iterations % 20 == 0 :
-				errD = D_real - D_fake
-				with open("/data/output_cell_{0}_{1}_{2}.txt".format(lrG, lrD, lam),'a+') as f:
-					f.write('{0} {1} {2} {3}'.format(epoch, gen_iterations , -errD.data[0] , mi_loss.data[0]) + '\n')
-				#print ('{0} {1} {2} {3}'.format(epoch, gen_iterations , -errD.data[0] , mi_loss.data[0]))
-				
-				#vutils.save_image(G_sample.data, '{0}fake_samples_{1}.png'.format(-errD.data[0], gen_iterations))
-				vutils.save_image(G_sample.data, 'fake_samples.png',normalize = True)
-				
-				for t in range(0,cont):
-					fixed_noise = generate_fix_noise_2(cont, rand)[t].reshape(100,rand+dis*10+cont,1,1)
-					G_sample = netG(Variable(torch.FloatTensor(fixed_noise).cuda()))
-					vutils.save_image(G_sample.data, '/data/map_{0}_{1}_{2}_{3}_{4}_cell.png'.format(t,epoch , lrG, lrD, lam),nrow=10,normalize=True)
-	
-	if epoch%10 == 0:
-		torch.save(netG.state_dict(), '/data/netG_epoch_{0}_{1}_{2}_{3}.pth'.format(epoch, lrG, lrD, lam))
-		torch.save(netD.state_dict(), '/data/netD_epoch_{0}_{1}_{2}_{3}.pth'.format(epoch, lrG, lrD, lam))
-		torch.save(netD_D.state_dict(), '/data/netD_D_epoch_{0}_{1}_{2}_{3}.pth'.format(epoch, lrG, lrD, lam))
-		torch.save(netD_Q_3.state_dict(), '/data/netD_Q_3_epoch_{0}_{1}_{2}_{3}.pth'.format(epoch, lrG, lrD, lam))
-		
-		
+            #mi_loss = 0.1*crossent_loss  + 1*square_loss
+            
+            mi_loss = 1*square_loss
+            mi_loss.backward()
+            optimizerQ_G.step()
+            optimizerQ_D.step()
+            
+            if gen_iterations % 20 == 0 :
+                errD = D_real - D_fake
+                with open("/data/output_cell_{0}_{1}_{2}.txt".format(lrQG, lrQD, lam),'a+') as f:
+                    f.write('{0} {1} {2} {3}'.format(epoch, gen_iterations , -errD.data[0] , mi_loss.data[0]) + '\n')
+                #print ('{0} {1} {2} {3}'.format(epoch, gen_iterations , -errD.data[0] , mi_loss.data[0]))
+                
+                #vutils.save_image(G_sample.data, '{0}fake_samples_{1}.png'.format(-errD.data[0], gen_iterations))
+                vutils.save_image(G_sample.data, 'fake_samples.png',normalize = True)
+                
+                for t in range(0,cont):
+                    fixed_noise = generate_fix_noise_2(cont, rand)[t].reshape(100,rand+dis*10+cont,1,1)
+                    G_sample = netG(Variable(torch.FloatTensor(fixed_noise).cuda()))
+                    vutils.save_image(G_sample.data, '/data/map_{0}_{1}_{2}_{3}_{4}_cell.png'.format(t,epoch , lrQG, lrQD, lam),nrow=10,normalize=True)
+    
+        if epoch%10 == 0:
+            torch.save(netG.state_dict(), '/data/netG_epoch_{0}_{1}_{2}_{3}.pth'.format(epoch, lrQG, lrQD, lam))
+            torch.save(netD.state_dict(), '/data/netD_epoch_{0}_{1}_{2}_{3}.pth'.format(epoch, lrQG, lrQD, lam))
+            torch.save(netD_D.state_dict(), '/data/netD_D_epoch_{0}_{1}_{2}_{3}.pth'.format(epoch, lrQG, lrQD, lam))
+            torch.save(netD_Q_3.state_dict(), '/data/netD_Q_3_epoch_{0}_{1}_{2}_{3}.pth'.format(epoch, lrQG, lrQD, lam))
+        
+        
