@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "storage.py", line 6, in <module>
+    inputImageFile = root_dir+imageList
+TypeError: cannot concatenate 'str' and 'list' objects
