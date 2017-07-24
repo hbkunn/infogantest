@@ -1,6 +1,8 @@
 from sklearn.datasets import fetch_mldata
 import cv2
 import numpy as np
+import os
+from multiprocessing import Pool as ThreadPool
 
 def get_mnist():
     mnist = fetch_mldata('MNIST original',data_home="/home/msragpu/cellwork/test_dataset/")
@@ -48,3 +50,14 @@ def bonemarrow_cell():
     X = np.asarray([x[:,:,::-1].transpose((2,0,1)) for x in X])
     X = X.astype(np.float32)/(255.0/2) - 1.0
     return X
+
+def segment_cell():
+    pool = ThreadPool(8) 
+    root_dir = '/disk1/cell_segment_save/'
+    npyList = os.listdir(root_dir)
+    npyList = [root_dir+n for n in npyList]
+    result = pool.map(np.load, npyList)
+    result = np.array(result)
+    X = np.asarray([x.transpose((2,0,1)) for x in result])
+    X = X.astype(np.float32)/(255.0/2) - 1.0
+    return result
